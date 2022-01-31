@@ -18,6 +18,8 @@
 import gettext
 import os
 import subprocess
+import gi
+gi.require_version('Nautilus', '3.0') 
 
 from gi.repository import Nautilus, Gtk, GObject, Gio
 
@@ -96,7 +98,7 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
 
     def __init__(self, *args, **kwargs):
         GObject.Object.__init__(self)
-        super().__init__(*args, **kwargs)
+        super(OdriveMenu, self).__init__(*args, **kwargs)
         self.odrivestatus = OdriveStatus()
         self.all_are_directories = True
         self.all_are_files = True
