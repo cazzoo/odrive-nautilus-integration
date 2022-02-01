@@ -33,6 +33,7 @@ except ImportError:
 gettext.textdomain('folder-color-common')
 _ = gettext.gettext
 
+odriveAgentPath = "/home/caz/.odrive-agent/bin/odrivae.py"
 
 class OdriveStatus:
     """Odrive Status Class"""
@@ -107,6 +108,10 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
         print("debug get_file_items")
         """Nautilus invokes this function in its startup > Create menu entry"""
         # Checks
+
+        if not os.path.exists(odriveAgentPath):
+            return Nautilus.MenuItem(name='Odrive::Top', label=_("No agent found"), tip="Unable to find odrive agent")
+
         if not self._check_generate_menu(files):
             return
 
@@ -172,7 +177,7 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
         dialog.destroy()
 
     def _execute_system_odrive_command(self, args):
-        p = subprocess.run(["/home/caz/.odrive-agent/bin/odrive.py"] + args, capture_output=True)
+        p = subprocess.run([odriveAgentPath] + args, capture_output=True)
         output = p.stdout.decode("utf-8")
         return output
 
