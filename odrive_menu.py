@@ -80,7 +80,7 @@ except ImportError:
     # ^ This monkey patch allows it work on Python 2 or 3 the same way
 
 # i18n
-gettext.textdomain('folder-color-common')
+gettext.textdomain('odrive-integration-common')
 _ = gettext.gettext
 
 def which(file_name):
