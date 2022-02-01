@@ -19,8 +19,9 @@ import gettext
 import os
 import subprocess
 import gi
-gi.require_version('Nautilus', '3.0') 
+import sys
 
+gi.require_version('Nautilus', '3.0')
 from gi.repository import Nautilus, Gtk, GObject, Gio
 
 # Python 2 or 3
@@ -29,11 +30,67 @@ try:
 except ImportError:
     from urllib.parse import unquote
 
+try:
+    from subprocess import CompletedProcess
+except ImportError:
+    # Python 2
+    class CompletedProcess:
+
+        def __init__(self, args, returncode, stdout=None, stderr=None):
+            self.args = args
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+
+        def check_returncode(self):
+            if self.returncode != 0:
+                err = subprocess.CalledProcessError(self.returncode, self.args, output=self.stdout)
+                raise err
+            return self.returncode
+
+    def sp_run(*popenargs, **kwargs):
+        input = kwargs.pop("input", None)
+        capture_output = kwargs.pop("capture_output", False)
+        check = kwargs.pop("handle", False)
+        if input is not None:
+            if 'stdin' in kwargs:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = subprocess.PIPE
+
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                'with capture_output.')
+            kwargs['stdout'] = subprocess.PIPE
+            kwargs['stderr'] = subprocess.PIPE
+
+        process = subprocess.Popen(*popenargs, **kwargs)
+        try:
+            outs, errs = process.communicate(input)
+        except:
+            process.kill()
+            process.wait()
+            raise
+        returncode = process.poll()
+        if check and returncode:
+            raise subprocess.CalledProcessError(returncode, popenargs, output=outs)
+        return CompletedProcess(popenargs, returncode, stdout=outs, stderr=errs)
+
+    subprocess.run = sp_run
+    # ^ This monkey patch allows it work on Python 2 or 3 the same way
+
 # i18n
 gettext.textdomain('folder-color-common')
 _ = gettext.gettext
 
-odriveAgentPath = "/home/caz/.odrive-agent/bin/odrivae.py"
+def which(file_name):
+    for path in os.environ["PATH"].split(os.pathsep):
+        full_path = os.path.join(path, file_name)
+        if os.path.exists(full_path) and os.access(full_path, os.X_OK):
+            return full_path
+    return None
+
+odriveClientPath = which("odrive")
 
 class OdriveStatus:
     """Odrive Status Class"""
@@ -98,6 +155,7 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
     """File Browser Menu"""
 
     def __init__(self, *args, **kwargs):
+        print (sys.version)
         GObject.Object.__init__(self)
         super(OdriveMenu, self).__init__(*args, **kwargs)
         self.odrivestatus = OdriveStatus()
@@ -109,8 +167,14 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
         """Nautilus invokes this function in its startup > Create menu entry"""
         # Checks
 
-        if not os.path.exists(odriveAgentPath):
-            return Nautilus.MenuItem(name='Odrive::Top', label=_("No agent found"), tip="Unable to find odrive agent")
+        if not odriveClientPath:
+            odrive_menu = Nautilus.MenuItem(
+                name='Odrive::Check', 
+                label=_("Odrive: No client found"), 
+                tip=_("Unable to find odrive client"),
+                sensitive=False
+            )
+            return odrive_menu,
 
         if not self._check_generate_menu(files):
             return
@@ -177,7 +241,8 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
         dialog.destroy()
 
     def _execute_system_odrive_command(self, args):
-        p = subprocess.run([odriveAgentPath] + args, capture_output=True)
+        print("odriveClientPath: " + odriveClientPath)
+        p = subprocess.run([odriveClientPath] + args, capture_output=True)
         output = p.stdout.decode("utf-8")
         return output
 
