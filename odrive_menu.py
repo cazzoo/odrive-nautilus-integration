@@ -22,7 +22,9 @@ import gi
 import sys
 
 gi.require_version('Nautilus', '3.0')
-from gi.repository import Nautilus, Gtk, GObject, Gio
+from gi.repository import Nautilus, GObject, Gio
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk
 
 # Python 2 or 3
 try:
@@ -91,6 +93,20 @@ def which(file_name):
     return None
 
 odriveClientPath = which("odrive")
+current_path = os.path.dirname(os.path.abspath(__file__))
+
+print("current path: " + current_path)
+
+class MyWindow(Gtk.Window):
+    def __init__(self):
+        super().__init__(title="Hello World")
+
+        self.button = Gtk.Button(label="Click Here")
+        self.button.connect("clicked", self.on_button_clicked)
+        self.add(self.button)
+
+    def on_button_clicked(self, widget):
+        print("Hello World")
 
 class OdriveStatus:
     """Odrive Status Class"""
@@ -149,7 +165,6 @@ class OdriveStatus:
     def _refresh(self, item_path):
         """Reload the current file/directory icon"""
         os.utime(item_path, None)
-
 
 class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
     """File Browser Menu"""
@@ -216,11 +231,54 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
         odrive_sub_menu = Nautilus.Menu()
         odrive_top_menu.set_submenu(odrive_sub_menu)
 
-        item_check = Nautilus.MenuItem(name='Odrive::Check', label=_("Check"), icon='refresh')
-        item_check.connect('activate', self._check_odrive_status, items)
-        odrive_sub_menu.append_item(item_check)
+        item_sync = Nautilus.MenuItem(name='Odrive::Sync', label=_("Sync"), icon='refresh')
+        item_sync.connect('activate', self._check_odrive_status, items)
+        item_unsync = Nautilus.MenuItem(name='Odrive::Unsync', label=_("Unsync"), icon='refresh')
+        item_unsync.connect('activate', self._check_odrive_status, items)
+        item_syncstate = Nautilus.MenuItem(name='Odrive::SyncState', label=_("SyncState"), icon='refresh')
+        item_syncstate.connect('activate', self._check_odrive_status, items)
+        item_refresh = Nautilus.MenuItem(name='Odrive::Refresh', label=_("Refresh"), icon='refresh')
+        item_refresh.connect('activate', self._check_odrive_status, items)
+        item_mount = Nautilus.MenuItem(name='Odrive::Mount', label=_("Mount"), icon='refresh')
+        item_mount.connect('activate', self._check_odrive_status, items)
+        item_unmount = Nautilus.MenuItem(name='Odrive::Unmount', label=_("Unmount"), icon='refresh')
+        item_unmount.connect('activate', self._check_odrive_status, items)
+        item_show = Nautilus.MenuItem(name='Odrive::Show', label=_("Show gtk window"), icon='refresh')
+        item_show.connect('activate', self._show_window)
+        item_showGlade = Nautilus.MenuItem(name='Odrive::ShowGlade', label=_("Show Glade gtk window"), icon='refresh')
+        item_showGlade.connect('activate', self._show_glade_window)
+        odrive_sub_menu.append_item(item_syncstate)
+        odrive_sub_menu.append_item(item_show)
+        odrive_sub_menu.append_item(item_showGlade)
 
         return odrive_top_menu,
+
+    def _show_window(self, menu):
+        win = MyWindow()
+        win.connect("destroy", Gtk.main_quit)
+        win.show_all()
+        Gtk.main()
+    
+    def _on_btn_confirm_released(self, button):
+        print("btn_confirm released")
+
+    def _on_btn_cancel_released(self, button):
+        print("btn_cancel released")
+
+    def _show_glade_window(self, menu):
+        builder = Gtk.Builder()
+        builder.add_from_file(os.path.join(current_path, 'confirmation.glade'))
+        window = builder.get_object('main_window')
+        window.connect('delete-event', Gtk.main_quit)
+
+        handlers = {
+            'on_btn_confirm_released': self._on_btn_confirm_released,
+            'on_btn_cancel_released': self._on_btn_cancel_released
+            }
+        builder.connect_signals(handlers)
+
+        window.show_all()
+        Gtk.main()
 
     def _check_odrive_status(self, menu, items):
 
