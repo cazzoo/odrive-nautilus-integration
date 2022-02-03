@@ -206,12 +206,12 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
             else:
                 self.all_are_directories = False
 
-        # All OK? > Generate menu
         return True
 
     def _generate_menu(self, items):
         for item in items:
-            print("item: " + item.get_uri_scheme() + ", " + item.get_uri())
+            filename, file_extension = os.path.splitext(item.get_uri())
+            print("item: " + ("dir", file)[item.is_directory()] + ", " + item.get_uri() + ", ext: " + file_extension)
 
         odrive_top_menu = Nautilus.MenuItem(name='Odrive::Top', label=_('Odrive'), icon='folder_color_picker')
 
@@ -271,7 +271,6 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
         Gtk.main()
 
     def _check_odrive_syncState(self, menu, items, check_children):
-
         item_path = unquote(items[0].get_uri()[7:])
 
         dialog = Gtk.MessageDialog(
