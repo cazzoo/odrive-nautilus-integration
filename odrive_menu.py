@@ -209,17 +209,28 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
         return True
 
     def _generate_menu(self, items):
+        menu_items=[]
+        # If we selected only one item
+        if len(items) < 2:
+            filename, file_extension = os.path.splitext(items[0].get_uri())
+            # If we're dealing with cloudf extension (not synched folder)
+            if file_extension == ".cloudf" or file_extension == ".cloud":
+                item_sync = Nautilus.MenuItem(name='Odrive::Sync', label=_("Sync"), icon='refresh')
+                item_sync.connect('activate', self._odrive_sync, items[0])
+                menu_items.append(item_sync)
+
         for item in items:
             filename, file_extension = os.path.splitext(item.get_uri())
-            print("item: " + ("dir", file)[item.is_directory()] + ", " + item.get_uri() + ", ext: " + file_extension)
+            if item.is_directory():
+                print("item: dir, " + item.get_uri())
+            else:
+                print("item: " + item.get_uri_scheme() + ", " + item.get_uri() + ", ext: " + file_extension)
 
         odrive_top_menu = Nautilus.MenuItem(name='Odrive::Top', label=_('Odrive'), icon='folder_color_picker')
 
         odrive_sub_menu = Nautilus.Menu()
         odrive_top_menu.set_submenu(odrive_sub_menu)
 
-        item_sync = Nautilus.MenuItem(name='Odrive::Sync', label=_("Sync"), icon='refresh')
-        item_sync.connect('activate', self._check_odrive_syncState, items)
         item_unsync = Nautilus.MenuItem(name='Odrive::Unsync', label=_("Unsync"), icon='refresh')
         item_unsync.connect('activate', self._check_odrive_syncState, items)
         item_syncstate_selected = Nautilus.MenuItem(name='Odrive::SyncState', label=_("Sync State (selected)"), icon='refresh')
@@ -240,6 +251,8 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
         odrive_sub_menu.append_item(item_syncstate_children)
         odrive_sub_menu.append_item(item_show)
         odrive_sub_menu.append_item(item_showGlade)
+        for menu_item in menu_items:
+            odrive_sub_menu.append_item(menu_item)
 
         return odrive_top_menu,
 
@@ -269,6 +282,13 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
 
         window.show_all()
         Gtk.main()
+
+    def _odrive_sync(self, menu, item):
+        item_path = unquote(item.get_uri()[7:])
+
+        output = self._execute_system_odrive_command(["sync", "\"{}\"".format(item_path)])
+        # update icon to "syncing"
+        # detach process: while output is empty, wait. otherwise, update icon to "synched"
 
     def _check_odrive_syncState(self, menu, items, check_children):
         item_path = unquote(items[0].get_uri()[7:])
