@@ -195,7 +195,7 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
     def _selected_files_in_mounted(self, items):
         all_selected_in_mounted_path = False
 
-        odrive_mounts = _odrive_get_mounts()
+        odrive_mounts = self._odrive_get_mounts()
 
         # only checking first item, since we may select multiple items but all in same folder
         if os.path.dirname(items[0].get_uri()) in odrive_mounts.values:
@@ -224,6 +224,8 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
     def _generate_menu(self, items):
         menu_items=[]
         # If we selected only one item
+        is_mounted = self._selected_files_in_mounted(items)
+        print("is mounted: " + is_mounted)
         if len(items) < 2:
             filename, file_extension = os.path.splitext(items[0].get_uri())
             # If we're dealing with cloudf extension (not synched folder)
@@ -313,8 +315,8 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
         # update icon to "syncing"
         # detach process: while output is empty, wait. otherwise, update icon to "synched"
 
-    def _odrive_get_mounts(self, menu):
-        output = self._execute_system_odrive_command(["status", "\"{}\"".format(item_path), "--mounts"])
+    def _odrive_get_mounts(self):
+        output = self._execute_system_odrive_command(["status", "--mounts"])
         return output.splitlines()
 
     def _check_odrive_syncState(self, menu, items, check_children):
