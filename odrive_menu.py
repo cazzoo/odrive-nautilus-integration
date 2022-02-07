@@ -20,11 +20,20 @@ import os
 import subprocess
 import gi
 import sys
+import re
 
 gi.require_version('Nautilus', '3.0')
 from gi.repository import Nautilus, GObject, Gio
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk
+
+try:
+    from urllib.parse import urlparse, unquote
+    from urllib.request import url2pathname
+except ImportError:
+    # backwards compatability
+    from urlparse import urlparse
+    from urllib import unquote, url2pathname
 
 # Python 2 or 3
 try:
@@ -91,6 +100,13 @@ def which(file_name):
         if os.path.exists(full_path) and os.access(full_path, os.X_OK):
             return full_path
     return None
+
+def uri_to_path(uri):
+    parsed = urlparse(uri)
+    host = "{0}{0}{mnt}{0}".format(os.path.sep, mnt=parsed.netloc)
+    return os.path.normpath(
+        os.path.join(host, url2pathname(unquote(parsed.path)))
+    )
 
 odriveClientPath = which("odrive")
 current_path = os.path.dirname(os.path.abspath(__file__))
@@ -198,8 +214,17 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
         odrive_mounts = self._odrive_get_mounts()
 
         # only checking first item, since we may select multiple items but all in same folder
-        if os.path.dirname(items[0].get_uri()) in odrive_mounts.values:
-            return true
+        path = uri_to_path(items[0].get_uri())
+
+        print("item path: " + path)
+        for mount in odrive_mounts:
+            print ("mount point: " + mount)
+
+            all_selected_in_mounted_path = mount in path
+            print(all_selected_in_mounted_path)
+            if all_selected_in_mounted_path:
+                print("selected file is in mount [{}]", mount)
+                break
 
         return all_selected_in_mounted_path
 
@@ -225,7 +250,7 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
         menu_items=[]
         # If we selected only one item
         is_mounted = self._selected_files_in_mounted(items)
-        print("is mounted: " + is_mounted)
+        print("is mounted: " + str(is_mounted))
         if len(items) < 2:
             filename, file_extension = os.path.splitext(items[0].get_uri())
             # If we're dealing with cloudf extension (not synched folder)
@@ -317,7 +342,15 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
 
     def _odrive_get_mounts(self):
         output = self._execute_system_odrive_command(["status", "--mounts"])
-        return output.splitlines()
+        regex = r"^(.+\/\w+).*"
+        mounts = []
+        for line in output.splitlines():
+            result = re.search(regex, line)
+            if result is not None and result.group(1) is not None:
+                mounts.append(result.group(1))
+            else:
+                continue
+        return mounts
 
     def _check_odrive_syncState(self, menu, items, check_children):
         item_path = unquote(items[0].get_uri()[7:])
