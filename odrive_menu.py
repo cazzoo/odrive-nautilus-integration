@@ -214,13 +214,14 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
         odrive_mounts = self._odrive_get_mounts()
 
         # only checking first item, since we may select multiple items but all in same folder
-        path = uri_to_path(items[0].get_uri())
+        path = unicode(uri_to_path(items[0].get_uri()), 'utf-8')
 
         print("item path: " + path)
         for mount in odrive_mounts:
             print ("mount point: " + mount)
 
             all_selected_in_mounted_path = mount in path
+            print("aaaa: " + str(all_selected_in_mounted_path))
             print(all_selected_in_mounted_path)
             if all_selected_in_mounted_path:
                 print("selected file is in mount [{}]", mount)
