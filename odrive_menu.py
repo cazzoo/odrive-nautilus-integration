@@ -124,6 +124,41 @@ class MyWindow(Gtk.Window):
     def on_button_clicked(self, widget):
         print("Hello World")
 
+class MountPathWindow(Gtk.Window):
+    def __init__(self, caller):
+        super(MountPathWindow, self).__init__(title="Mount remote location")
+
+        self.set_default_size(150, 100)
+
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.add(vbox)
+        labelLocalPath = Gtk.Label(label="Selected local path:\n{}".format(caller.localPath))
+        vbox.pack_start(labelLocalPath, True, True, 0)
+        self.label = Gtk.Label(label="Please enter remote path for the mount point.\n ex: /Google Drive/Pictures or just / for odrive root")
+        vbox.pack_start(self.label, True, True, 0)
+        self.entry = Gtk.Entry()
+        self.entry.set_text("")
+        vbox.pack_start(self.entry, True, True, 0)
+
+        hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        vbox.pack_end(hbox, True, True, 0)
+
+        button1 = Gtk.Button(label="Cancel")
+        button1.connect("clicked", self.on_button1_clicked)
+        hbox.pack_start(button1, True, True, 0)
+
+        button2 = Gtk.Button(label="Ok")
+        button2.connect("clicked", self.on_button2_clicked, caller)
+        hbox.pack_start(button2, True, True, 0)
+
+    def on_button1_clicked(self, widget):
+        self.destroy()
+
+    def on_button2_clicked(self, widget, caller):
+        print("value from field: " + self.entry.get_text())
+        caller.windowReturnValue = self.entry.get_text()
+        self.destroy()
+
 class OdriveStatus:
     """Odrive Status Class"""
 
@@ -183,6 +218,7 @@ class OdriveStatus:
         os.utime(item_path, None)
 
 class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
+
     def __init__(self, *args, **kwargs):
         print (sys.version)
         GObject.Object.__init__(self)
@@ -190,6 +226,8 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
         self.odrivestatus = OdriveStatus()
         self.all_are_directories = True
         self.all_are_files = True
+        self.windowReturnValue=""
+        self.localPath=""
 
     def get_file_items(self, window, files):
         if not odriveClientPath:
@@ -201,7 +239,8 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
             )
             return odrive_menu,
 
-        # Is selected file(s) part of any odrive mounts?
+        # Is agent running?
+        # Is activated?
 
         if not self._check_generate_menu(files):
             return
@@ -249,9 +288,20 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
 
     def _generate_menu(self, items):
         menu_items=[]
+
+        # Is selected file(s) part of any odrive mounts?
+        if not self._selected_files_in_mounted(items):
+            # If we selected only one item
+            if len(items) == 1:
+                # Propose to mount folder
+                item_mount = Nautilus.MenuItem(name='Odrive::Mount', label=_("Mount"), icon='refresh')
+                item_mount.connect('activate', self._odrive_mount, items[0])
+                menu_items.append(item_mount)
+            else:
+                # Propose to unmount
+                return False
+
         # If we selected only one item
-        is_mounted = self._selected_files_in_mounted(items)
-        print("is mounted: " + str(is_mounted))
         if len(items) < 2:
             filename, file_extension = os.path.splitext(items[0].get_uri())
             # If we're dealing with cloudf extension (not synched folder)
@@ -283,8 +333,7 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
         item_syncstate_children.connect('activate', self._check_odrive_syncState, items, True)
         item_refresh = Nautilus.MenuItem(name='Odrive::Refresh', label=_("Refresh"), icon='refresh')
         item_refresh.connect('activate', self._check_odrive_syncState, items)
-        item_mount = Nautilus.MenuItem(name='Odrive::Mount', label=_("Mount"), icon='refresh')
-        item_mount.connect('activate', self._check_odrive_syncState, items)
+        
         item_unmount = Nautilus.MenuItem(name='Odrive::Unmount', label=_("Unmount"), icon='refresh')
         item_unmount.connect('activate', self._check_odrive_syncState, items)
         item_show = Nautilus.MenuItem(name='Odrive::Show', label=_("Show gtk window"), icon='refresh')
@@ -326,6 +375,23 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
 
         window.show_all()
         Gtk.main()
+
+    def _odrive_mount(self, menu, item):
+        item_path = unquote(item.get_uri()[7:])
+        self.localPath = item_path
+
+        remotePathWindow = MountPathWindow(self)
+        remotePathWindow.connect("destroy", Gtk.main_quit)
+        remotePathWindow.show_all()
+        Gtk.main()
+
+        # Sanitize user input to ensure there's nothing wrong in the path.
+        user_input = self.windowReturnValue.decode("utf8","ignore")
+
+        output = self._execute_system_odrive_command(["mount", "\"{}{}\"".format(item_path, user_input)])
+        print("command output:\n{}".format(output))
+        # update icon to "syncing"
+        # detach process: while output is empty, wait. otherwise, update icon to "synched"
 
     def _odrive_sync(self, menu, item):
         item_path = unquote(item.get_uri()[7:])
