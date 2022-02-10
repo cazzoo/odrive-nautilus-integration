@@ -293,13 +293,22 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
         if not self._selected_files_in_mounted(items):
             # If we selected only one item
             if len(items) == 1:
-                # Propose to mount folder
-                item_mount = Nautilus.MenuItem(name='Odrive::Mount', label=_("Mount"), icon='refresh')
-                item_mount.connect('activate', self._odrive_mount, items[0])
-                menu_items.append(item_mount)
+                if items[0].is_directory():
+                    # Propose to mount folder
+                    item_mount = Nautilus.MenuItem(name='Odrive::Mount', label=_("Mount"), icon='refresh')
+                    item_mount.connect('activate', self._odrive_mount, items[0])
+                    menu_items.append(item_mount)
             else:
                 # Propose to unmount
                 return False
+        else:
+            # If we selected only one item
+            if len(items) == 1:
+                if items[0].is_directory():
+                    item_unmount = Nautilus.MenuItem(name='Odrive::Unmount', label=_("Unmount"), icon='refresh')
+                    item_unmount.connect('activate', self._odrive_unmount, items[0])
+                    menu_items.append(item_unmount)
+        
 
         # If we selected only one item
         if len(items) < 2:
@@ -334,8 +343,6 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
         item_refresh = Nautilus.MenuItem(name='Odrive::Refresh', label=_("Refresh"), icon='refresh')
         item_refresh.connect('activate', self._check_odrive_syncState, items)
         
-        item_unmount = Nautilus.MenuItem(name='Odrive::Unmount', label=_("Unmount"), icon='refresh')
-        item_unmount.connect('activate', self._check_odrive_syncState, items)
         item_show = Nautilus.MenuItem(name='Odrive::Show', label=_("Show gtk window"), icon='refresh')
         item_show.connect('activate', self._show_window)
         item_showGlade = Nautilus.MenuItem(name='Odrive::ShowGlade', label=_("Show Glade gtk window"), icon='refresh')
@@ -384,14 +391,25 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
         remotePathWindow.connect("destroy", Gtk.main_quit)
         remotePathWindow.show_all()
         Gtk.main()
+        
+        if self.windowReturnValue is not None:
+            # Sanitize user input to ensure there's nothing wrong in the path.
+            user_input = self.windowReturnValue.decode("utf8","ignore")
 
-        # Sanitize user input to ensure there's nothing wrong in the path.
-        user_input = self.windowReturnValue.decode("utf8","ignore")
+            output = self._execute_system_odrive_command(["mount", item_path, user_input])
+            print("command output:\n{}".format(output))
+            # update icon to "syncing"
+            # detach process: while output is empty, wait. otherwise, update icon to "synched"
+        else:
+            print("Canceled mount")
 
-        output = self._execute_system_odrive_command(["mount", "\"{}{}\"".format(item_path, user_input)])
+    def _odrive_unmount(self, menu, item):
+        item_path = unquote(item.get_uri()[7:])
+        self.localPath = item_path
+
+        output = self._execute_system_odrive_command(["unmount", "\"{}\"".format(item_path)])
         print("command output:\n{}".format(output))
-        # update icon to "syncing"
-        # detach process: while output is empty, wait. otherwise, update icon to "synched"
+        # reset icon to normal folder
 
     def _odrive_sync(self, menu, item):
         item_path = unquote(item.get_uri()[7:])
@@ -441,6 +459,7 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
         dialog.destroy()
 
     def _execute_system_odrive_command(self, args):
+        print("odrive args: " + ",".join(args))
         p = subprocess.run([odriveClientPath] + args, capture_output=True)
         output = p.stdout.decode("utf-8")
         return output
