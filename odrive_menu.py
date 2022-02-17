@@ -10,7 +10,7 @@ import subprocess
 import gi
 import sys
 import re
-
+import types
 
 standard_library.install_aliases()
 gi.require_version('Nautilus', '3.0')
@@ -73,12 +73,12 @@ except ImportError:
         check = kwargs.pop("handle", False)
         if command_input is not None:
             if 'stdin' in kwargs:
-                raise ValueError('stdin and input arguments may not both be used.')
+                raise ValueError('stdin and input command_arguments may not both be used.')
             kwargs['stdin'] = subprocess.PIPE
 
         if capture_output:
             if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
-                raise ValueError('stdout and stderr arguments may not be used '
+                raise ValueError('stdout and stderr command_arguments may not be used '
                                  'with capture_output.')
             kwargs['stdout'] = subprocess.PIPE
             kwargs['stderr'] = subprocess.PIPE
@@ -146,11 +146,13 @@ class MountPathWindow(Gtk.Window):
 
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.add(vbox)
+
         label_local_path = Gtk.Label(label="Selected local path:\n{}".format(caller.localPath))
         vbox.pack_start(label_local_path, True, True, 0)
         self.label = Gtk.Label(
             label="Please enter remote path for the mount point.\n ex: /Google Drive/Pictures or just / for odrive root")
         vbox.pack_start(self.label, True, True, 0)
+
         self.entry = Gtk.Entry()
         self.entry.set_text("")
         vbox.pack_start(self.entry, True, True, 0)
@@ -159,19 +161,73 @@ class MountPathWindow(Gtk.Window):
         vbox.pack_end(hbox, True, True, 0)
 
         button1 = Gtk.Button(label="Cancel")
-        button1.connect("clicked", self.on_button1_clicked)
+        button1.connect("clicked", self.on_cancel_clicked, caller)
         hbox.pack_start(button1, True, True, 0)
 
         button2 = Gtk.Button(label="Ok")
-        button2.connect("clicked", self.on_button2_clicked, caller)
+        button2.connect("clicked", self.on_confirm_clicked, caller)
         hbox.pack_start(button2, True, True, 0)
 
-    def on_button1_clicked(self, widget):
+    def on_cancel_clicked(self, widget, caller):
+        caller.windowReturnObject.action = "Cancel"
         self.destroy()
 
-    def on_button2_clicked(self, widget, caller):
+    def on_confirm_clicked(self, widget, caller):
         print("value from field: " + self.entry.get_text())
-        caller.windowReturnValue = self.entry.get_text()
+        caller.windowReturnObject.action = "Confirm"
+        caller.windowReturnObject.value = self.entry.get_text()
+        self.destroy()
+
+
+class FolderSyncOptionsWindow(Gtk.Window):
+    def __init__(self, caller):
+        super(FolderSyncOptionsWindow, self).__init__(title="Folder sync options")
+
+        self.set_default_size(300, 200)
+
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.add(vbox)
+
+        hbox_recursive = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        lbl_recursive = Gtk.Label.new(_("Sync all sub-folders."))
+        self.chk_recursiveSync = Gtk.CheckButton.new_with_mnemonic(_("Recursive"))
+        self.chk_recursiveSync.connect("toggled", self.on_chk_recursive_toggled)
+        hbox_recursive.pack_start(lbl_recursive, True, True, 0)
+        hbox_recursive.pack_start(self.chk_recursiveSync, True, True, 0)
+        vbox.pack_start(hbox_recursive, True, True, 0)
+
+        hbox_nodownload = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        lbl_nodownload = Gtk.Label.new(_("Do not download files, just placeholders. (to use in conjunction with \"Recursive\""))
+        self.chk_nodownloadSync = Gtk.CheckButton.new_with_mnemonic(_("No download"))
+        self.chk_nodownloadSync.set_sensitive(False)
+        hbox_nodownload.pack_start(lbl_nodownload, True, True, 0)
+        hbox_nodownload.pack_start(self.chk_nodownloadSync, True, True, 0)
+        vbox.pack_start(hbox_nodownload, True, True, 0)
+
+        hbox_btn = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        vbox.pack_end(hbox_btn, True, True, 0)
+
+        btn_cancel = Gtk.Button(label=_("Cancel"))
+        btn_cancel.connect("clicked", self.on_cancel_clicked, caller)
+        hbox_btn.pack_start(btn_cancel, True, True, 0)
+
+        btn_confirm = Gtk.Button(label=_("Confirm"))
+        btn_confirm.connect("clicked", self.on_confirm_clicked, caller)
+        hbox_btn.pack_start(btn_confirm, True, True, 0)
+
+    def on_chk_recursive_toggled(self, widget):
+        self.chk_nodownloadSync.set_sensitive(self.chk_recursiveSync.get_active())
+
+    def on_cancel_clicked(self, widget, caller):
+        caller.windowReturnObject.action = "Cancel"
+        self.destroy()
+
+    def on_confirm_clicked(self, widget, caller):
+        caller.windowReturnObject.action = "Confirm"
+        caller.windowReturnObject.value = {
+            "recursive": str(self.chk_recursiveSync.get_active()),
+            "nodownload": str(self.chk_nodownloadSync.get_active())
+        }
         self.destroy()
 
 
@@ -243,7 +299,7 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
         self.odrivestatus = OdriveStatus()
         self.all_are_directories = True
         self.all_are_files = True
-        self.windowReturnValue = ""
+        self.windowReturnObject = types.SimpleNamespace()
         self.localPath = ""
 
     def get_file_items(self, window, files):
@@ -346,8 +402,12 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
 
         if can_sync:
             item_sync = Nautilus.MenuItem(name='Odrive::Sync', label=_("Sync"), icon='refresh')
-            item_sync.connect('activate', self._odrive_sync, items)
+            item_sync.connect('activate', self._odrive_sync, items, False)
             menu_items.append(item_sync)
+
+            item_sync_options = Nautilus.MenuItem(name='Odrive::Sync_With_Options', label=_("Sync..."), icon='refresh')
+            item_sync_options.connect('activate', self._odrive_sync, items, True)
+            menu_items.append(item_sync_options)
 
         if can_unsync:
             item_unsync = Nautilus.MenuItem(name='Odrive::Unsync', label=_("Unsync"), icon='refresh')
@@ -419,14 +479,14 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
         item_path = unquote(item.get_uri()[7:])
         self.localPath = item_path
 
-        remotePathWindow = MountPathWindow(self)
-        remotePathWindow.connect("destroy", Gtk.main_quit)
-        remotePathWindow.show_all()
+        remote_path_window = MountPathWindow(self)
+        remote_path_window.connect("destroy", Gtk.main_quit)
+        remote_path_window.show_all()
         Gtk.main()
 
-        if self.windowReturnValue is not None:
+        if self.windowReturnObject.action == "Confirm":
             # Sanitize user input to ensure there's nothing wrong in the path.
-            user_input = self.windowReturnValue
+            user_input = self.windowReturnObject.value
 
             output = self._execute_system_odrive_command(["mount", item_path, user_input])
             print("command output:\n{}".format(output))
@@ -443,22 +503,44 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
         print("command output:\n{}".format(output))
         # reset icon to normal folder
 
-    def _odrive_sync(self, menu, items):
+    def _odrive_sync(self, menu, items, prompt_options):
+
+        if prompt_options:
+            threshold_select_window = FolderSyncOptionsWindow(self)
+            threshold_select_window.connect("destroy", Gtk.main_quit)
+            threshold_select_window.show_all()
+            Gtk.main()
+
+            if self.windowReturnObject.action is not None and self.windowReturnObject.action == "Confirm":
+                recursive = eval(self.windowReturnObject.value.get("recursive"))
+                no_download = eval(self.windowReturnObject.value.get("nodownload"))
+                # detach process we we don't get nautilus stuck during sync
+                self.sync_files(items, recursive, no_download)
+                # detach process: while output is empty, wait. otherwise, update icon to "synced"
+                # update icon to "syncing"
+            else:
+                print("Canceled mount")
+        else:
+            # Do a single sync (default options)
+            self.sync_files(items, False, False)
+
+    def sync_files(self, items, recursive, no_download):
         for item in items:
             item_path = unquote(item.get_uri()[7:])
             filename, file_extension = os.path.splitext(item.get_uri())
-            print("filename: " + filename)
             if file_extension == ".cloudf" or file_extension == ".cloud":
-                output = self._execute_system_odrive_command(["sync", "\"{}\"".format(item_path)])
+                command_arguments = ["sync", "\"{}\"".format(item_path)]
+                if recursive:
+                    command_arguments.append("--recursive")
+                if no_download:
+                    command_arguments.append("--nodownload")
+                output = self._execute_system_odrive_command(command_arguments)
                 print(output)
-                # update icon to "syncing"
-                # detach process: while output is empty, wait. otherwise, update icon to "synced"
 
     def _odrive_unsync(self, menu, items):
         for item in items:
             item_path = unquote(item.get_uri()[7:])
             filename, file_extension = os.path.splitext(item.get_uri())
-            print("filename: " + filename)
             if file_extension != ".cloudf" or file_extension != ".cloud":
                 output = self._execute_system_odrive_command(["unsync", "\"{}\"".format(item_path)])
                 print(output)
