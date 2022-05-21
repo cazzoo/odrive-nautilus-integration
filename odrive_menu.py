@@ -122,20 +122,7 @@ def uri_to_path(uri):
 
 odriveClientPath = which("odrive")
 current_path = os.path.dirname(os.path.abspath(__file__))
-
-print("current path: " + current_path)
-
-
-class MyWindow(Gtk.Window):
-    def __init__(self):
-        super().__init__(title="Hello World")
-
-        self.button = Gtk.Button(label="Click Here")
-        self.button.connect("clicked", self.on_button_clicked)
-        self.add(self.button)
-
-    def on_button_clicked(self, widget):
-        print("Hello World")
+abs_exec_path = os.path.dirname(os.path.realpath(__file__))
 
 
 class MountPathWindow(Gtk.Window):
@@ -197,7 +184,8 @@ class FolderSyncOptionsWindow(Gtk.Window):
         vbox.pack_start(hbox_recursive, True, True, 0)
 
         hbox_nodownload = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        lbl_nodownload = Gtk.Label.new(_("Do not download files, just placeholders. (to use in conjunction with \"Recursive\""))
+        lbl_nodownload = Gtk.Label.new(
+            _("Do not download files, just placeholders. (to use in conjunction with \"Recursive\""))
         self.chk_nodownloadSync = Gtk.CheckButton.new_with_mnemonic(_("No download"))
         self.chk_nodownloadSync.set_sensitive(False)
         hbox_nodownload.pack_start(lbl_nodownload, True, True, 0)
@@ -289,6 +277,16 @@ class OdriveStatus(object):
         """Reload the current file/directory icon"""
         os.utime(item_path, None)
 
+def _execute_system_odrive_command(args):
+    """ Add multithreading capabilities, so not to lock Nautilus when doing long running operations.
+        check following examples:
+        - https://stackoverflow.com/a/24106419
+        - https://stackoverflow.com/a/14533789"""
+    print("odrive args: " + ",".join(args))
+    p = subprocess.run([odriveClientPath] + args, capture_output=True)
+    output = p.stdout.decode("utf-8")
+    return output
+
 
 class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
 
@@ -327,16 +325,9 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
 
         # only checking first item, since we may select multiple items but all in same folder
         path = uri_to_path(items[0].get_uri())
-
-        print("item path: " + path)
         for mount in odrive_mounts:
-            print("mount point: " + mount)
-
             all_selected_in_mounted_path = mount in path
-            print("aaaa: " + str(all_selected_in_mounted_path))
-            print(all_selected_in_mounted_path)
             if all_selected_in_mounted_path:
-                print(("selected file is in mount [{}]", mount))
                 break
 
         return all_selected_in_mounted_path
@@ -435,40 +426,41 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
         item_refresh = Nautilus.MenuItem(name='Odrive::Refresh', label=_("Refresh"), icon='refresh')
         item_refresh.connect('activate', self._check_odrive_syncState, items)
 
-        item_show = Nautilus.MenuItem(name='Odrive::Show', label=_("Show gtk window"), icon='refresh')
-        item_show.connect('activate', self._show_window)
+        if self.all_are_directories:
+            odrive_sub_menu.append_item(item_syncstate_selected)
+            odrive_sub_menu.append_item(item_syncstate_children)
+
+        if self.all_are_files:
+            odrive_sub_menu.append_item(item_syncstate_selected)
+
+        ''' This is another way to get window using glade external files
         item_show_glade = Nautilus.MenuItem(name='Odrive::ShowGlade', label=_("Show Glade gtk window"), icon='refresh')
         item_show_glade.connect('activate', self._show_glade_window)
-        odrive_sub_menu.append_item(item_syncstate_selected)
-        odrive_sub_menu.append_item(item_syncstate_children)
-        odrive_sub_menu.append_item(item_show)
-        odrive_sub_menu.append_item(item_show_glade)
+        odrive_sub_menu.append_item(item_show_glade)'''
         for menu_item in menu_items:
             odrive_sub_menu.append_item(menu_item)
 
         return odrive_top_menu,
 
-    def _show_window(self, menu):
-        win = MyWindow()
-        win.connect("destroy", Gtk.main_quit)
-        win.show_all()
-        Gtk.main()
-
-    def _on_btn_confirm_released(self, button):
+    def _on_btn_confirm_released(self, widget, window):
         print("btn_confirm released")
+        window.destroy()
+        Gtk.main_quit
 
-    def _on_btn_cancel_released(self, button):
+    def _on_btn_cancel_released(self, widget, window):
         print("btn_cancel released")
+        window.destroy()
+        Gtk.main_quit
 
     def _show_glade_window(self, menu):
         builder = Gtk.Builder()
-        builder.add_from_file(os.path.join(current_path, 'confirmation.glade'))
+        builder.add_from_file(os.path.join(abs_exec_path, 'confirmation.glade'))
         window = builder.get_object('main_window')
         window.connect('delete-event', Gtk.main_quit)
 
         handlers = {
-            'on_btn_confirm_released': self._on_btn_confirm_released,
-            'on_btn_cancel_released': self._on_btn_cancel_released
+            'on_btn_confirm_released': (self._on_btn_confirm_released, window),
+            'on_btn_cancel_released': (self._on_btn_cancel_released, window)
         }
         builder.connect_signals(handlers)
 
@@ -488,7 +480,7 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
             # Sanitize user input to ensure there's nothing wrong in the path.
             user_input = self.windowReturnObject.value
 
-            output = self._execute_system_odrive_command(["mount", item_path, user_input])
+            output = _execute_system_odrive_command(["mount", item_path, user_input])
             print("command output:\n{}".format(output))
             # update icon to "syncing"
             # detach process: while output is empty, wait. otherwise, update icon to "synced"
@@ -499,7 +491,7 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
         item_path = unquote(item.get_uri()[7:])
         self.localPath = item_path
 
-        output = self._execute_system_odrive_command(["unmount", "\"{}\"".format(item_path)])
+        output = _execute_system_odrive_command(["unmount", "\"{}\"".format(item_path)])
         print("command output:\n{}".format(output))
         # reset icon to normal folder
 
@@ -534,7 +526,7 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
                     command_arguments.append("--recursive")
                 if no_download:
                     command_arguments.append("--nodownload")
-                output = self._execute_system_odrive_command(command_arguments)
+                output = _execute_system_odrive_command(command_arguments)
                 print(output)
 
     def _odrive_unsync(self, menu, items):
@@ -542,13 +534,13 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
             item_path = unquote(item.get_uri()[7:])
             filename, file_extension = os.path.splitext(item.get_uri())
             if file_extension != ".cloudf" or file_extension != ".cloud":
-                output = self._execute_system_odrive_command(["unsync", "\"{}\"".format(item_path)])
+                output = _execute_system_odrive_command(["unsync", "\"{}\"".format(item_path)])
                 print(output)
                 # update icon to "un-syncing"
                 # detach process: while output is empty, wait. otherwise, update icon to "unsynced"
 
     def _odrive_get_mounts(self):
-        output = self._execute_system_odrive_command(["status", "--mounts"])
+        output = _execute_system_odrive_command(["status", "--mounts"])
         regex = r"^(.+\/\w+).*"
         mounts = []
         for line in output.splitlines():
@@ -570,7 +562,7 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
             text="Sync status of [{}]{}".format(item_path, ("", " children")[check_children]),
         )
 
-        output = self._execute_system_odrive_command(["syncstate", "\"{}\"".format(item_path), "--textonly"])
+        output = _execute_system_odrive_command(["syncstate", "\"{}\"".format(item_path), "--textonly"])
         filtered_output = ""
         if check_children:
             filtered_output = output.split('\n', 1)[1]
@@ -579,12 +571,6 @@ class OdriveMenu(GObject.GObject, Nautilus.MenuProvider):
         dialog.format_secondary_text(filtered_output)
         dialog.run()
         dialog.destroy()
-
-    def _execute_system_odrive_command(self, args):
-        print("odrive args: " + ",".join(args))
-        p = subprocess.run([odriveClientPath] + args, capture_output=True)
-        output = p.stdout.decode("utf-8")
-        return output
 
     def _check_generate_restore(self, items):
         """Menu: Show restore?"""
